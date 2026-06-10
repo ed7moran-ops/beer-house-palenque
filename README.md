@@ -94,6 +94,7 @@ La documentación ampliada se encuentra en la carpeta `docs/`:
 
 - [`docs/ANALISIS_MEJORAS.md`](docs/ANALISIS_MEJORAS.md): análisis de seguridad, usabilidad, rendimiento y diseño.
 - [`docs/DOCUMENTACION_TECNICA.md`](docs/DOCUMENTACION_TECNICA.md): arquitectura, tecnologías, estructura, funciones, base de datos, instalación y configuración.
+- [`docs/DEPLOYMENT_EXECUTION_GUIDE.md`](docs/DEPLOYMENT_EXECUTION_GUIDE.md): guía completa de despliegue, ejecución local, variables de entorno, inicialización, pruebas y solución de problemas.
 - [`docs/MANUAL_USUARIO.md`](docs/MANUAL_USUARIO.md): guía de uso para administradores y vendedores.
 - [`docs/BITACORA_DESARROLLO.md`](docs/BITACORA_DESARROLLO.md): objetivos de prompts, resultados y mejoras realizadas.
 
