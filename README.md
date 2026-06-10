@@ -87,6 +87,16 @@ Si el backend está en otra URL, define la variable:
 VITE_API_URL=http://localhost:5000 npm run dev
 ```
 
+
+## Documentación del proyecto
+
+La documentación ampliada se encuentra en la carpeta `docs/`:
+
+- [`docs/ANALISIS_MEJORAS.md`](docs/ANALISIS_MEJORAS.md): análisis de seguridad, usabilidad, rendimiento y diseño.
+- [`docs/DOCUMENTACION_TECNICA.md`](docs/DOCUMENTACION_TECNICA.md): arquitectura, tecnologías, estructura, funciones, base de datos, instalación y configuración.
+- [`docs/MANUAL_USUARIO.md`](docs/MANUAL_USUARIO.md): guía de uso para administradores y vendedores.
+- [`docs/BITACORA_DESARROLLO.md`](docs/BITACORA_DESARROLLO.md): objetivos de prompts, resultados y mejoras realizadas.
+
 ## Scripts útiles
 
 ### Backend
