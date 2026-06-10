@@ -1,0 +1,63 @@
+{
+  "name": "Beer House Palenque",
+  "short_name": "Beer Palenque",
+  "description": "Inventario, ventas rápidas y reportes de Beer House Palenque.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone",
+    "minimal-ui"
+  ],
+  "orientation": "portrait-primary",
+  "background_color": "#0b0b0f",
+  "theme_color": "#d4af37",
+  "categories": [
+    "business",
+    "productivity"
+  ],
+  "lang": "es-EC",
+  "icons": [
+    {
+      "src": "/icons/icon-192-placeholder.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512-placeholder.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Venta rápida",
+      "short_name": "Venta",
+      "description": "Abrir el panel de venta rápida.",
+      "url": "/#products",
+      "icons": [
+        {
+          "src": "/icons/icon-192-placeholder.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Carrito",
+      "short_name": "Carrito",
+      "description": "Abrir el carrito de venta.",
+      "url": "/#cart",
+      "icons": [
+        {
+          "src": "/icons/icon-192-placeholder.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
+}
