@@ -1,10 +1,7 @@
-# PWA icon placeholders
+# PWA icons
 
-The installable PWA manifest intentionally points to placeholder icon paths so the final brand assets can be added later without committing generated binary PNG files in this repository.
+The app ships with the vector Beer House Palenque logo used by the manifest, favicon, shortcuts and install metadata:
 
-Add the production icons with these exact filenames before publishing the PWA:
+- `beer-house-logo.svg` — scalable SVG icon declared with `sizes: "any"` and `purpose: "any maskable"`.
 
-- `icon-192-placeholder.png` — 192×192 PNG, maskable-safe padding recommended.
-- `icon-512-placeholder.png` — 512×512 PNG, maskable-safe padding recommended.
-
-After adding final assets, keep the paths in `frontend/public/manifest.json` or update the manifest and HTML metadata to match the production filenames.
+For app-store publication or stricter platform requirements, generate branded PNG derivatives (for example 192×192 and 512×512) from this source SVG and update `frontend/public/manifest.json` plus `frontend/index.html` to point to those files.

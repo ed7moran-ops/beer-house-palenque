@@ -4,7 +4,7 @@ import shutil
 import sqlite3
 import uuid
 import zipfile
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from html import escape
 from pathlib import Path
 from urllib.parse import quote
@@ -53,7 +53,7 @@ DEFAULT_SETTINGS = {
 
 
 def now_iso():
-    return datetime.utcnow().isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def get_db():
@@ -69,6 +69,28 @@ def row_to_dict(row):
 
 def money(value):
     return round(float(value or 0), 2)
+
+
+def as_positive_int(value, field_name, allow_zero=False):
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{field_name} debe ser un número entero")
+    if allow_zero and number < 0:
+        raise ValueError(f"{field_name} no puede ser negativo")
+    if not allow_zero and number <= 0:
+        raise ValueError(f"{field_name} debe ser mayor a cero")
+    return number
+
+
+def as_non_negative_money(value, field_name):
+    try:
+        number = float(value or 0)
+    except (TypeError, ValueError):
+        raise ValueError(f"{field_name} debe ser un número válido")
+    if number < 0:
+        raise ValueError(f"{field_name} no puede ser negativo")
+    return number
 
 
 def add_column(conn, table, column, definition):
@@ -150,7 +172,7 @@ def seed_demo_data(conn):
     products = conn.execute("SELECT * FROM products ORDER BY id").fetchall()
     if not sellers or not products:
         return
-    base = datetime.utcnow()
+    base = datetime.now(UTC)
     for index in range(90):
         created_at = (base - timedelta(days=index % 120, hours=(index * 3) % 12)).isoformat()
         seller_id = sellers[index % len(sellers)]["id"]
@@ -203,7 +225,7 @@ def active_cash_session(conn, user_id, branch_id):
 def ensure_auto_backup():
     with get_db() as conn:
         settings = dict(conn.execute("SELECT key, value FROM business_settings").fetchall())
-        today = datetime.utcnow().date().isoformat()
+        today = datetime.now(UTC).date().isoformat()
         exists = conn.execute("SELECT 1 FROM backups WHERE kind = 'auto' AND substr(created_at, 1, 10) = ? LIMIT 1", (today,)).fetchone()
     if settings.get("auto_backup_enabled", "1") == "1" and not exists and DB_PATH.exists():
         create_backup("auto", None)
@@ -211,7 +233,7 @@ def ensure_auto_backup():
 
 def create_backup(kind="auto", user=None):
     BACKUP_FOLDER.mkdir(exist_ok=True)
-    stamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     filename = f"beer-house-{kind}-{stamp}.db"
     target = BACKUP_FOLDER / filename
     if DB_PATH.exists():
@@ -434,22 +456,38 @@ def create_sale(user):
             cash = active_cash_session(conn, user["id"], branch_id)
             if not cash:
                 raise ValueError("Abre caja antes de vender")
-            sale_items, subtotal, profit = [], 0.0, 0.0
+
+            requested = {}
             for item in items:
-                lookup = item.get("product_id")
-                product = conn.execute("SELECT * FROM products WHERE id = ?", (int(lookup),)).fetchone() if lookup else conn.execute("SELECT * FROM products WHERE barcode = ?", (item.get("barcode", ""),)).fetchone()
-                quantity = int(item.get("quantity", 1))
-                if product is None or quantity <= 0:
+                quantity = as_positive_int(item.get("quantity", 1), "Cantidad")
+                product_id = item.get("product_id")
+                barcode = str(item.get("barcode", "")).strip()
+                if product_id:
+                    key = ("id", int(product_id))
+                elif barcode:
+                    key = ("barcode", barcode)
+                else:
                     raise ValueError("Producto o cantidad inválida")
+                requested[key] = requested.get(key, 0) + quantity
+
+            sale_items, subtotal, profit = [], 0.0, 0.0
+            for (lookup_type, lookup_value), quantity in requested.items():
+                if lookup_type == "id":
+                    product = conn.execute("SELECT * FROM products WHERE id = ? AND branch_id = ?", (lookup_value, branch_id)).fetchone()
+                else:
+                    product = conn.execute("SELECT * FROM products WHERE barcode = ? AND branch_id = ?", (lookup_value, branch_id)).fetchone()
+                if product is None:
+                    raise ValueError("Producto no encontrado en la sucursal seleccionada")
                 if product["stock"] < quantity:
-                    raise ValueError(f"Stock insuficiente para {product['name']}")
+                    raise ValueError(f"Stock insuficiente para {product['name']}: disponible {product['stock']}, solicitado {quantity}")
                 line_subtotal = product["price"] * quantity
                 line_profit = (product["price"] - product["cost_price"]) * quantity
                 subtotal += line_subtotal
                 profit += line_profit
                 sale_items.append((product, quantity, line_subtotal, line_profit))
+
             promotion_id = data.get("promotion_id")
-            discount = float(data.get("discount", 0) or 0)
+            discount = as_non_negative_money(data.get("discount", 0), "Descuento")
             if promotion_id:
                 promo = conn.execute("SELECT * FROM promotions WHERE id = ? AND active = 1", (int(promotion_id),)).fetchone()
                 if promo and subtotal >= promo["min_total"]:
@@ -462,7 +500,9 @@ def create_sale(user):
             for product, quantity, line_subtotal, line_profit in sale_items:
                 before = product["stock"]
                 after = before - quantity
-                conn.execute("UPDATE products SET stock = ?, updated_at = ? WHERE id = ?", (after, now_iso(), product["id"]))
+                updated = conn.execute("UPDATE products SET stock = ?, updated_at = ? WHERE id = ? AND stock >= ?", (after, now_iso(), product["id"], quantity))
+                if updated.rowcount != 1:
+                    raise ValueError(f"Stock insuficiente para {product['name']}")
                 conn.execute("INSERT INTO sale_items (sale_id, product_id, product_name, barcode, quantity, unit_price, unit_cost, subtotal, profit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (sale_id, product["id"], product["name"], product["barcode"], quantity, product["price"], product["cost_price"], line_subtotal, line_profit))
                 conn.execute("INSERT INTO inventory_movements (product_id, branch_id, user_id, movement_type, quantity, before_stock, after_stock, reference, notes, created_at) VALUES (?, ?, ?, 'sale', ?, ?, ?, ?, 'Venta POS', ?)", (product["id"], branch_id, user["id"], -quantity, before, after, f"sale:{sale_id}", now_iso()))
             if data.get("customer_id"):
@@ -473,7 +513,6 @@ def create_sale(user):
             conn.rollback()
             return jsonify({"message": str(exc)}), 400
     return jsonify({"sale_id": sale_id, "total": total, "subtotal": money(subtotal), "discount": money(discount), "seller": user["name"], "ticket_url": f"/api/sales/{sale_id}/ticket"}), 201
-
 
 @app.get("/api/sales")
 @require_auth(["admin"])
@@ -613,7 +652,7 @@ def restore_backup(user):
 
 
 def period_start(period):
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     if period == "daily":
         return now.replace(hour=0, minute=0, second=0, microsecond=0)
     if period == "weekly":
@@ -645,8 +684,8 @@ def reports_summary(user):
         low_stock = [row_to_dict(row) for row in conn.execute("SELECT * FROM products WHERE stock <= min_stock ORDER BY stock ASC, name ASC").fetchall()]
         top_products = [row_to_dict(row) for row in conn.execute("SELECT product_name, SUM(quantity) AS quantity, SUM(subtotal) AS total, SUM(profit) AS profit FROM sale_items GROUP BY product_id, product_name ORDER BY quantity DESC LIMIT 8").fetchall()]
         by_seller = [row_to_dict(row) for row in conn.execute("SELECT u.name AS seller_name, COUNT(s.id) AS sales_count, COALESCE(SUM(s.total), 0) AS total, COALESCE(SUM(s.profit), 0) AS profit FROM users u LEFT JOIN sales s ON s.seller_id = u.id WHERE u.role IN ('seller', 'admin') GROUP BY u.id, u.name ORDER BY total DESC LIMIT 8").fetchall()]
-        sales_chart = [row_to_dict(row) for row in conn.execute("SELECT substr(created_at, 1, 10) AS label, COALESCE(SUM(total), 0) AS sales, COALESCE(SUM(profit), 0) AS profit FROM sales WHERE created_at >= ? GROUP BY substr(created_at, 1, 10) ORDER BY label ASC", ((datetime.utcnow() - timedelta(days=13)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat(),)).fetchall()]
-        monthly_chart = [row_to_dict(row) for row in conn.execute("SELECT substr(created_at, 1, 7) AS label, COALESCE(SUM(total), 0) AS sales, COALESCE(SUM(profit), 0) AS profit FROM sales WHERE created_at >= ? GROUP BY substr(created_at, 1, 7) ORDER BY label ASC", ((datetime.utcnow() - timedelta(days=365)).replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat(),)).fetchall()]
+        sales_chart = [row_to_dict(row) for row in conn.execute("SELECT substr(created_at, 1, 10) AS label, COALESCE(SUM(total), 0) AS sales, COALESCE(SUM(profit), 0) AS profit FROM sales WHERE created_at >= ? GROUP BY substr(created_at, 1, 10) ORDER BY label ASC", ((datetime.now(UTC) - timedelta(days=13)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat(),)).fetchall()]
+        monthly_chart = [row_to_dict(row) for row in conn.execute("SELECT substr(created_at, 1, 7) AS label, COALESCE(SUM(total), 0) AS sales, COALESCE(SUM(profit), 0) AS profit FROM sales WHERE created_at >= ? GROUP BY substr(created_at, 1, 7) ORDER BY label ASC", ((datetime.now(UTC) - timedelta(days=365)).replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat(),)).fetchall()]
         expenses = [row_to_dict(row) for row in conn.execute("SELECT e.*, u.name AS created_by_name FROM expenses e LEFT JOIN users u ON u.id = e.created_by ORDER BY e.created_at DESC LIMIT 50").fetchall()]
         settings = dict(conn.execute("SELECT key, value FROM business_settings").fetchall())
         inventory = conn.execute("SELECT COUNT(*) AS products, COALESCE(SUM(stock), 0) AS units FROM products").fetchone()
