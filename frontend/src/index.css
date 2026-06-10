@@ -65,3 +65,45 @@ img {
     user-select: none;
   }
 }
+
+.light-mode {
+  color: #171717;
+  background: #fff8df;
+}
+
+.light-mode body {
+  background: #fff8df;
+}
+
+.light-mode .bg-beer-black {
+  background-color: #fff8df;
+}
+
+.light-mode .text-white {
+  color: #171717;
+}
+
+.light-mode .text-zinc-300,
+.light-mode .text-zinc-400 {
+  color: #4b5563;
+}
+
+.light-mode .glass-panel {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(255, 248, 223, 0.94));
+  border-color: rgba(138, 106, 22, 0.22);
+  box-shadow: 0 24px 70px rgba(76, 58, 8, 0.16);
+}
+
+.light-mode .input {
+  @apply border-black/10 bg-white/80 text-zinc-950 placeholder:text-zinc-500;
+}
+
+.light-mode .desktop-sidebar,
+.light-mode .bg-zinc-950\/80,
+.light-mode .bg-zinc-950\/95 {
+  background-color: rgba(255, 255, 255, 0.92);
+}
+
+.light-mode .bg-white\/5 {
+  background-color: rgba(0, 0, 0, 0.04);
+}
