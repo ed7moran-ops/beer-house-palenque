@@ -1,12 +1,15 @@
+import io
 import os
 import sqlite3
 import uuid
+import zipfile
 from datetime import datetime, timedelta
+from html import escape
 from urllib.parse import quote
 from functools import wraps
 from pathlib import Path
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory
 from flask_cors import CORS
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
@@ -32,7 +35,19 @@ INITIAL_PRODUCTS = [
     ("Heineken", "Lager internacional", 3.00, 1.85, 50, 10),
     ("Amstel", "Lager europea balanceada", 2.80, 1.70, 44, 10),
     ("Stella Artois", "Lager belga premium", 3.25, 2.00, 36, 8),
+    ("Michelada House", "Preparación especial de la casa", 4.50, 2.20, 40, 10),
+    ("Margarita Palenque", "Cóctel cítrico premium", 5.75, 2.80, 32, 8),
+    ("Snack Mix", "Botana salada para mesa", 3.25, 1.40, 28, 8),
 ]
+
+DEFAULT_SETTINGS = {
+    "business_name": "Beer House Palenque",
+    "tax_id": "RUC-DEMO-0001",
+    "address": "Centro de Palenque",
+    "phone": "+593 99 000 0000",
+    "currency": "USD",
+    "daily_cash_opening": "150.00",
+}
 
 
 def get_db():
@@ -44,6 +59,26 @@ def get_db():
 
 def row_to_dict(row):
     return dict(row) if row is not None else None
+
+
+def money(value):
+    return round(float(value or 0), 2)
+
+
+def beer_house_logo():
+    svg = (
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'>"
+        "<rect width='256' height='256' rx='58' fill='#0b0b0f'/>"
+        "<circle cx='128' cy='122' r='82' fill='#d4af37'/>"
+        "<circle cx='128' cy='122' r='62' fill='#111111'/>"
+        "<path d='M95 82h50a34 34 0 0 1 0 68H95z' fill='#f7c948'/>"
+        "<path d='M145 98h22a18 18 0 0 1 0 36h-22' fill='none' stroke='#f7c948' stroke-width='14'/>"
+        "<rect x='90' y='70' width='58' height='96' rx='12' fill='#f7c948'/>"
+        "<path d='M90 90h58' stroke='#fff3b0' stroke-width='10'/>"
+        "<text x='128' y='207' text-anchor='middle' font-family='Arial' font-size='24' font-weight='900' fill='#f7c948'>BHP</text>"
+        "</svg>"
+    )
+    return f"data:image/svg+xml;utf8,{quote(svg)}"
 
 
 def product_image(name):
@@ -120,6 +155,21 @@ def init_db():
                 FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
                 FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
             );
+
+            CREATE TABLE IF NOT EXISTS expenses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                concept TEXT NOT NULL,
+                category TEXT NOT NULL,
+                amount REAL NOT NULL,
+                created_at TEXT NOT NULL,
+                created_by INTEGER,
+                FOREIGN KEY (created_by) REFERENCES users(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS business_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             """
         )
         user_count = conn.execute("SELECT COUNT(*) AS total FROM users").fetchone()["total"]
@@ -142,6 +192,54 @@ def init_db():
                 """,
                 [(*product, product_image(product[0]), now, now) for product in INITIAL_PRODUCTS],
             )
+        for key, value in DEFAULT_SETTINGS.items():
+            conn.execute("INSERT OR IGNORE INTO business_settings (key, value) VALUES (?, ?)", (key, value))
+        conn.execute("INSERT OR IGNORE INTO business_settings (key, value) VALUES (?, ?)", ("logo_url", beer_house_logo()))
+        seed_demo_data(conn)
+
+
+def seed_demo_data(conn):
+    sale_count = conn.execute("SELECT COUNT(*) AS total FROM sales").fetchone()["total"]
+    if sale_count:
+        return
+    now = datetime.utcnow()
+    sellers = conn.execute("SELECT id FROM users WHERE role IN ('seller', 'admin') ORDER BY id").fetchall()
+    products = conn.execute("SELECT * FROM products ORDER BY id").fetchall()
+    if not sellers or not products:
+        return
+    for index in range(180):
+        created_at = (now - timedelta(days=index % 365, hours=(index * 3) % 12, minutes=(index * 11) % 50)).isoformat()
+        seller_id = sellers[index % len(sellers)]["id"]
+        selected = [products[index % len(products)], products[(index + 3) % len(products)]]
+        total = profit = 0.0
+        lines = []
+        for offset, product in enumerate(selected):
+            quantity = 1 + ((index + offset) % 4)
+            subtotal = product["price"] * quantity
+            item_profit = (product["price"] - product["cost_price"]) * quantity
+            total += subtotal
+            profit += item_profit
+            lines.append((product, quantity, subtotal, item_profit))
+        cursor = conn.execute("INSERT INTO sales (seller_id, total, profit, created_at) VALUES (?, ?, ?, ?)", (seller_id, total, profit, created_at))
+        for product, quantity, subtotal, item_profit in lines:
+            conn.execute(
+                """
+                INSERT INTO sale_items (sale_id, product_id, product_name, quantity, unit_price, unit_cost, subtotal, profit)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (cursor.lastrowid, product["id"], product["name"], quantity, product["price"], product["cost_price"], subtotal, item_profit),
+            )
+    demo_expenses = [
+        ("Hielo y vasos", "Operación", 18.50, now - timedelta(hours=4)),
+        ("Publicidad redes", "Marketing", 42.00, now - timedelta(days=2)),
+        ("Limpieza", "Operación", 25.00, now - timedelta(days=7)),
+        ("Mantenimiento sonido", "Equipos", 70.00, now - timedelta(days=18)),
+    ]
+    admin_id = sellers[0]["id"]
+    conn.executemany(
+        "INSERT INTO expenses (concept, category, amount, created_at, created_by) VALUES (?, ?, ?, ?, ?)",
+        [(concept, category, amount, date.isoformat(), admin_id) for concept, category, amount, date in demo_expenses],
+    )
 
 
 def allowed_file(filename):
@@ -150,7 +248,7 @@ def allowed_file(filename):
 
 def current_user():
     auth_header = request.headers.get("Authorization", "")
-    token = auth_header.replace("Bearer ", "", 1).strip()
+    token = auth_header.replace("Bearer ", "", 1).strip() or request.args.get("token", "").strip()
     user_id = sessions.get(token)
     if not user_id:
         return None
@@ -376,6 +474,8 @@ def period_start(period):
         return (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
     if period == "monthly":
         return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if period == "annual":
+        return now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
     return datetime.min
 
 
@@ -384,31 +484,167 @@ def period_start(period):
 def reports_summary(user):
     with get_db() as conn:
         totals = {}
-        for period in ["daily", "weekly", "monthly"]:
+        for period in ["daily", "weekly", "monthly", "annual"]:
             start = period_start(period).isoformat()
-            row = conn.execute("SELECT COALESCE(SUM(total), 0) AS sales, COALESCE(SUM(profit), 0) AS profit, COUNT(*) AS orders FROM sales WHERE created_at >= ?", (start,)).fetchone()
-            totals[period] = row_to_dict(row)
+            sales_row = conn.execute("SELECT COALESCE(SUM(total), 0) AS sales, COALESCE(SUM(profit), 0) AS profit, COUNT(*) AS orders FROM sales WHERE created_at >= ?", (start,)).fetchone()
+            expenses_row = conn.execute("SELECT COALESCE(SUM(amount), 0) AS expenses FROM expenses WHERE created_at >= ?", (start,)).fetchone()
+            totals[period] = row_to_dict(sales_row)
+            totals[period]["expenses"] = money(expenses_row["expenses"])
+            totals[period]["net_profit"] = money(totals[period]["profit"] - totals[period]["expenses"])
+        daily_start = period_start("daily").isoformat()
+        daily_sales = conn.execute("SELECT COALESCE(SUM(total), 0) AS sales, COALESCE(SUM(profit), 0) AS profit, COUNT(*) AS orders FROM sales WHERE created_at >= ?", (daily_start,)).fetchone()
+        daily_expenses = conn.execute("SELECT COALESCE(SUM(amount), 0) AS expenses FROM expenses WHERE created_at >= ?", (daily_start,)).fetchone()["expenses"]
+        opening = float(dict(conn.execute("SELECT key, value FROM business_settings").fetchall()).get("daily_cash_opening", 0) or 0)
+        cash_cut = {**row_to_dict(daily_sales), "opening_cash": opening, "expenses": money(daily_expenses), "expected_cash": money(opening + daily_sales["sales"] - daily_expenses), "net_profit": money(daily_sales["profit"] - daily_expenses)}
         low_stock = [row_to_dict(row) for row in conn.execute("SELECT * FROM products WHERE stock <= min_stock ORDER BY stock ASC, name ASC").fetchall()]
         top_products = [row_to_dict(row) for row in conn.execute(
             """
-            SELECT product_name, SUM(quantity) AS quantity, SUM(subtotal) AS total
+            SELECT product_name, SUM(quantity) AS quantity, SUM(subtotal) AS total, SUM(profit) AS profit
             FROM sale_items
             GROUP BY product_id, product_name
             ORDER BY quantity DESC
-            LIMIT 5
+            LIMIT 8
             """
         ).fetchall()]
         by_seller = [row_to_dict(row) for row in conn.execute(
             """
             SELECT u.name AS seller_name, COUNT(s.id) AS sales_count, COALESCE(SUM(s.total), 0) AS total, COALESCE(SUM(s.profit), 0) AS profit
             FROM users u LEFT JOIN sales s ON s.seller_id = u.id
-            WHERE u.role = 'seller'
+            WHERE u.role IN ('seller', 'admin')
             GROUP BY u.id, u.name
             ORDER BY total DESC
+            LIMIT 8
             """
         ).fetchall()]
+        sales_chart = [row_to_dict(row) for row in conn.execute(
+            """
+            SELECT substr(created_at, 1, 10) AS label, COALESCE(SUM(total), 0) AS sales, COALESCE(SUM(profit), 0) AS profit
+            FROM sales
+            WHERE created_at >= ?
+            GROUP BY substr(created_at, 1, 10)
+            ORDER BY label ASC
+            """,
+            ((datetime.utcnow() - timedelta(days=13)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat(),),
+        ).fetchall()]
+        monthly_chart = [row_to_dict(row) for row in conn.execute(
+            """
+            SELECT substr(created_at, 1, 7) AS label, COALESCE(SUM(total), 0) AS sales, COALESCE(SUM(profit), 0) AS profit
+            FROM sales
+            WHERE created_at >= ?
+            GROUP BY substr(created_at, 1, 7)
+            ORDER BY label ASC
+            """,
+            ((datetime.utcnow() - timedelta(days=365)).replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat(),),
+        ).fetchall()]
+        expenses = [row_to_dict(row) for row in conn.execute("SELECT e.*, u.name AS created_by_name FROM expenses e LEFT JOIN users u ON u.id = e.created_by ORDER BY e.created_at DESC LIMIT 50").fetchall()]
+        settings = dict(conn.execute("SELECT key, value FROM business_settings").fetchall())
         inventory = conn.execute("SELECT COUNT(*) AS products, COALESCE(SUM(stock), 0) AS units FROM products").fetchone()
-    return jsonify({"totals": totals, "low_stock": low_stock, "top_products": top_products, "by_seller": by_seller, "inventory": row_to_dict(inventory)})
+    return jsonify({"totals": totals, "cash_cut": cash_cut, "low_stock": low_stock, "top_products": top_products, "by_seller": by_seller, "charts": {"daily": sales_chart, "monthly": monthly_chart}, "expenses": expenses, "settings": settings, "inventory": row_to_dict(inventory)})
+
+
+@app.get("/api/expenses")
+@require_auth(["admin"])
+def list_expenses(user):
+    with get_db() as conn:
+        expenses = [row_to_dict(row) for row in conn.execute("SELECT e.*, u.name AS created_by_name FROM expenses e LEFT JOIN users u ON u.id = e.created_by ORDER BY e.created_at DESC LIMIT 200").fetchall()]
+    return jsonify({"expenses": expenses})
+
+
+@app.post("/api/expenses")
+@require_auth(["admin"])
+def create_expense(user):
+    data = request.get_json(force=True)
+    with get_db() as conn:
+        cursor = conn.execute(
+            "INSERT INTO expenses (concept, category, amount, created_at, created_by) VALUES (?, ?, ?, ?, ?)",
+            (data["concept"].strip(), data.get("category", "Operación").strip(), float(data["amount"]), data.get("created_at") or datetime.utcnow().isoformat(), user["id"]),
+        )
+        expense = conn.execute("SELECT * FROM expenses WHERE id = ?", (cursor.lastrowid,)).fetchone()
+    return jsonify({"expense": row_to_dict(expense)}), 201
+
+
+@app.delete("/api/expenses/<int:expense_id>")
+@require_auth(["admin"])
+def delete_expense(user, expense_id):
+    with get_db() as conn:
+        conn.execute("DELETE FROM expenses WHERE id = ?", (expense_id,))
+    return jsonify({"message": "Gasto eliminado"})
+
+
+@app.get("/api/settings")
+@require_auth(["admin"])
+def get_settings(user):
+    with get_db() as conn:
+        settings = dict(conn.execute("SELECT key, value FROM business_settings").fetchall())
+    return jsonify({"settings": settings})
+
+
+@app.put("/api/settings")
+@require_auth(["admin"])
+def update_settings(user):
+    data = request.get_json(force=True)
+    allowed = set(DEFAULT_SETTINGS) | {"logo_url"}
+    with get_db() as conn:
+        for key, value in data.items():
+            if key in allowed:
+                conn.execute("INSERT OR REPLACE INTO business_settings (key, value) VALUES (?, ?)", (key, str(value)))
+    with get_db() as conn:
+        settings = dict(conn.execute("SELECT key, value FROM business_settings").fetchall())
+    return jsonify({"settings": settings})
+
+
+def report_rows(conn):
+    return [row_to_dict(row) for row in conn.execute(
+        """
+        SELECT s.id, s.created_at, u.name AS seller, s.total, s.profit,
+               COALESCE(GROUP_CONCAT(si.product_name || ' x' || si.quantity, ' | '), '') AS items
+        FROM sales s
+        JOIN users u ON u.id = s.seller_id
+        LEFT JOIN sale_items si ON si.sale_id = s.id
+        GROUP BY s.id
+        ORDER BY s.created_at DESC
+        """
+    ).fetchall()]
+
+
+def make_xlsx(rows):
+    headers = ["ID", "Fecha", "Vendedor", "Total", "Ganancia", "Productos"]
+    data = [headers] + [[r["id"], r["created_at"], r["seller"], money(r["total"]), money(r["profit"]), r["items"]] for r in rows]
+    def cell(value):
+        if isinstance(value, (int, float)):
+            return f"<c><v>{value}</v></c>"
+        return f"<c t='inlineStr'><is><t>{escape(str(value))}</t></is></c>"
+    sheet_rows = "".join(f"<row r='{i+1}'>" + "".join(cell(v) for v in row) + "</row>" for i, row in enumerate(data))
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", "<?xml version='1.0'?><Types xmlns='http://schemas.openxmlformats.org/package/2006/content-types'><Default Extension='rels' ContentType='application/vnd.openxmlformats-package.relationships+xml'/><Default Extension='xml' ContentType='application/xml'/><Override PartName='/xl/workbook.xml' ContentType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml'/><Override PartName='/xl/worksheets/sheet1.xml' ContentType='application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml'/></Types>")
+        zf.writestr("_rels/.rels", "<?xml version='1.0'?><Relationships xmlns='http://schemas.openxmlformats.org/package/2006/relationships'><Relationship Id='rId1' Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument' Target='xl/workbook.xml'/></Relationships>")
+        zf.writestr("xl/workbook.xml", "<?xml version='1.0'?><workbook xmlns='http://schemas.openxmlformats.org/spreadsheetml/2006/main' xmlns:r='http://schemas.openxmlformats.org/officeDocument/2006/relationships'><sheets><sheet name='Ventas' sheetId='1' r:id='rId1'/></sheets></workbook>")
+        zf.writestr("xl/_rels/workbook.xml.rels", "<?xml version='1.0'?><Relationships xmlns='http://schemas.openxmlformats.org/package/2006/relationships'><Relationship Id='rId1' Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet' Target='worksheets/sheet1.xml'/></Relationships>")
+        zf.writestr("xl/worksheets/sheet1.xml", f"<?xml version='1.0'?><worksheet xmlns='http://schemas.openxmlformats.org/spreadsheetml/2006/main'><sheetData>{sheet_rows}</sheetData></worksheet>")
+    output.seek(0)
+    return output.read()
+
+
+def make_pdf(rows):
+    lines = ["Beer House Palenque - Reporte de ventas", ""]
+    lines += [f"#{r['id']} {r['created_at'][:10]} {r['seller']} Total ${money(r['total']):.2f} Ganancia ${money(r['profit']):.2f}" for r in rows[:45]]
+    text = "\n".join(lines).replace("(", "[").replace(")", "]")
+    stream = "BT /F1 12 Tf 42 780 Td " + " T* ".join(f"({escape(line)})" for line in text.split("\n")) + " ET"
+    pdf = f"%PDF-1.4\n1 0 obj <</Type/Catalog/Pages 2 0 R>> endobj\n2 0 obj <</Type/Pages/Kids[3 0 R]/Count 1>> endobj\n3 0 obj <</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<</Font<</F1 4 0 R>>>>/Contents 5 0 R>> endobj\n4 0 obj <</Type/Font/Subtype/Type1/BaseFont/Helvetica>> endobj\n5 0 obj <</Length {len(stream)}>>stream\n{stream}\nendstream endobj\nxref\n0 6\n0000000000 65535 f \ntrailer <</Root 1 0 R/Size 6>>\nstartxref\n0\n%%EOF"
+    return pdf.encode("latin-1", "ignore")
+
+
+@app.get("/api/reports/export/<fmt>")
+@require_auth(["admin"])
+def export_report(user, fmt):
+    with get_db() as conn:
+        rows = report_rows(conn)
+    if fmt == "excel":
+        return Response(make_xlsx(rows), mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=beer-house-reporte.xlsx"})
+    if fmt == "pdf":
+        return Response(make_pdf(rows), mimetype="application/pdf", headers={"Content-Disposition": "attachment; filename=beer-house-reporte.pdf"})
+    return jsonify({"message": "Formato no soportado"}), 400
 
 
 @app.get("/api/health")
