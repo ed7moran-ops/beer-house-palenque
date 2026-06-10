@@ -16,14 +16,32 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "beer_house.db"
-UPLOAD_FOLDER = BASE_DIR / "uploads"
-BACKUP_FOLDER = BASE_DIR / "backups"
-ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
+PROJECT_ROOT = BASE_DIR.parent
 
-app = Flask(__name__)
-app.config["UPLOAD_FOLDER"] = str(UPLOAD_FOLDER)
-CORS(app)
+
+def env_path(name, default):
+    return Path(os.environ.get(name, default)).expanduser().resolve()
+
+
+DB_PATH = env_path("DB_PATH", BASE_DIR / "beer_house.db")
+UPLOAD_FOLDER = env_path("UPLOAD_FOLDER", BASE_DIR / "uploads")
+BACKUP_FOLDER = env_path("BACKUP_FOLDER", BASE_DIR / "backups")
+FRONTEND_DIST = env_path("FRONTEND_DIST", PROJECT_ROOT / "frontend" / "dist")
+ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
+PRODUCTION = os.environ.get("FLASK_ENV") == "production" or os.environ.get("APP_ENV") == "production"
+
+app = Flask(__name__, static_folder=str(FRONTEND_DIST), static_url_path="")
+app.config.update(
+    UPLOAD_FOLDER=str(UPLOAD_FOLDER),
+    SECRET_KEY=os.environ.get("SECRET_KEY", uuid.uuid4().hex),
+    MAX_CONTENT_LENGTH=int(os.environ.get("MAX_CONTENT_LENGTH", 8 * 1024 * 1024)),
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=PRODUCTION,
+)
+
+cors_origins = [origin.strip() for origin in os.environ.get("CORS_ORIGINS", "*").split(",") if origin.strip()]
+CORS(app, resources={r"/api/*": {"origins": cors_origins}, r"/uploads/*": {"origins": cors_origins}})
 sessions = {}
 
 INITIAL_PRODUCTS = [
@@ -150,7 +168,9 @@ def init_db():
                 add_column(conn, table, column, definition)
         conn.execute("INSERT OR IGNORE INTO branches (id, name, address, phone, active, created_at) VALUES (1, 'Matriz Palenque', 'Centro de Palenque', '+593 99 000 0000', 1, ?)", (now_iso(),))
         if conn.execute("SELECT COUNT(*) total FROM users").fetchone()["total"] == 0:
-            conn.executemany("INSERT INTO users (name, username, password_hash, role, created_at, branch_id) VALUES (?, ?, ?, ?, ?, 1)", [("Administrador Beer House", "admin", generate_password_hash("admin123"), "admin", now_iso()), ("Vendedor Demo", "vendedor", generate_password_hash("vendedor123"), "seller", now_iso())])
+            admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
+            seller_password = os.environ.get("SELLER_PASSWORD", "vendedor123")
+            conn.executemany("INSERT INTO users (name, username, password_hash, role, created_at, branch_id) VALUES (?, ?, ?, ?, ?, 1)", [("Administrador Beer House", "admin", generate_password_hash(admin_password), "admin", now_iso()), ("Vendedor Demo", "vendedor", generate_password_hash(seller_password), "seller", now_iso())])
         if conn.execute("SELECT COUNT(*) total FROM products").fetchone()["total"] == 0:
             rows = [(*p[:2], p[2], p[3], p[4], p[5], p[6], product_image(p[0]), now_iso(), now_iso(), 1) for p in INITIAL_PRODUCTS]
             conn.executemany("INSERT INTO products (name, barcode, description, price, cost_price, stock, min_stock, image_url, created_at, updated_at, branch_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
@@ -162,7 +182,8 @@ def init_db():
         conn.execute("INSERT OR IGNORE INTO business_settings (key, value) VALUES (?, ?)", ("logo_url", beer_house_logo()))
         if conn.execute("SELECT COUNT(*) total FROM promotions").fetchone()["total"] == 0:
             conn.execute("INSERT INTO promotions (name, type, value, active, min_total, created_at) VALUES ('Happy Hour 10%', 'percent', 10, 1, 20, ?)", (now_iso(),))
-        seed_demo_data(conn)
+        if os.environ.get("SEED_DEMO_DATA", "1") == "1":
+            seed_demo_data(conn)
 
 
 def seed_demo_data(conn):
@@ -790,10 +811,38 @@ def export_report(user, fmt):
 
 @app.get("/api/health")
 def health():
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "database": DB_PATH.exists(), "frontend": FRONTEND_DIST.exists()})
+
+
+@app.after_request
+def add_security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if PRODUCTION:
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
+
+
+@app.get("/")
+def serve_frontend_index():
+    if FRONTEND_DIST.exists():
+        return send_from_directory(FRONTEND_DIST, "index.html")
+    return jsonify({"message": "Frontend build not found. Run scripts/build_production.sh."}), 404
+
+
+@app.get("/<path:path>")
+def serve_frontend_asset(path):
+    target = FRONTEND_DIST / path
+    if FRONTEND_DIST.exists() and target.is_file():
+        return send_from_directory(FRONTEND_DIST, path)
+    if FRONTEND_DIST.exists():
+        return send_from_directory(FRONTEND_DIST, "index.html")
+    return jsonify({"message": "Frontend build not found. Run scripts/build_production.sh."}), 404
 
 
 init_db()
 ensure_auto_backup()
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=os.environ.get("FLASK_DEBUG") == "1")

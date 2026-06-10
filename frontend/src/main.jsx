@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { ArchiveRestore, BarChart3, Beer, Boxes, Building2, Camera, Download, FileText, History, LogOut, Moon, Percent, Plus, Printer, ReceiptText, Search, ShieldCheck, ShoppingCart, Smartphone, Sun, Trash2, Upload, Users, WalletCards } from 'lucide-react'
 import './index.css'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:5000'
 const currency = new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD' })
 const fmt = (value) => value ? new Date(value).toLocaleString('es-EC') : '—'
 const apiPath = (path) => !path ? '' : path.startsWith('data:') || path.startsWith('http') ? path : `${API_URL}${path}`

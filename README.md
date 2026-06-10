@@ -88,6 +88,29 @@ VITE_API_URL=http://localhost:5000 npm run dev
 ```
 
 
+
+## Producción y despliegue público
+
+El proyecto incluye configuración lista para desplegar una versión pública en Render Free con Flask + Gunicorn sirviendo el build de React desde un solo dominio HTTPS.
+
+Archivos principales:
+
+- [`render.yaml`](render.yaml): blueprint de Render Free Web Service.
+- [`.env.production.example`](.env.production.example): variables de entorno seguras para producción.
+- [`scripts/build_production.sh`](scripts/build_production.sh): instala dependencias, compila React y valida Python.
+- [`scripts/start_production.sh`](scripts/start_production.sh): inicia Gunicorn con rutas SQLite, uploads y backups configurables.
+- [`scripts/backup_sqlite.sh`](scripts/backup_sqlite.sh): crea y descarga respaldos SQLite desde el URL público.
+- [`docs/PRODUCTION_DEPLOYMENT.md`](docs/PRODUCTION_DEPLOYMENT.md): guía paso a paso para URL público, backups y seguridad.
+
+Comandos rápidos:
+
+```bash
+./scripts/build_production.sh
+APP_ENV=production FLASK_ENV=production SECRET_KEY=dev-secret ADMIN_PASSWORD=admin123 SELLER_PASSWORD=vendedor123 ./scripts/start_production.sh
+```
+
+En producción real cambie `ADMIN_PASSWORD`, `SELLER_PASSWORD`, `SECRET_KEY` y `CORS_ORIGINS`.
+
 ## Documentación del proyecto
 
 La documentación ampliada se encuentra en la carpeta `docs/`:
