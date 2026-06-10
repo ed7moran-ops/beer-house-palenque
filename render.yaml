@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: beer-house-palenque
+    runtime: python
+    plan: free
+    buildCommand: ./scripts/build_production.sh
+    startCommand: ./scripts/start_production.sh
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: FLASK_ENV
+        value: production
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: NODE_VERSION
+        value: 20.19.0
+      - key: DB_PATH
+        value: /opt/render/project/src/data/beer_house.db
+      - key: UPLOAD_FOLDER
+        value: /opt/render/project/src/data/uploads
+      - key: BACKUP_FOLDER
+        value: /opt/render/project/src/data/backups
+      - key: FRONTEND_DIST
+        value: /opt/render/project/src/frontend/dist
+      - key: SEED_DEMO_DATA
+        value: "0"
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: MAX_CONTENT_LENGTH
+        value: "8388608"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: SELLER_PASSWORD
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
