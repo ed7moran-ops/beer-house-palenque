@@ -1,10 +1,10 @@
 # Despliegue de producción - Beer House Palenque
 
-Esta guía deja la aplicación disponible en internet para computadoras, tablets y celulares con un solo URL público. La opción recomendada usa **Render Free Web Service** porque permite desplegar Flask + React desde este repositorio sin servidores propios.
+Esta guía deja la aplicación disponible en internet para computadoras, tablets y celulares con un solo URL público. La opción recomendada usa **Render Free Web Service** con runtime **Docker** porque permite desplegar Flask + React desde el `Dockerfile` incluido, sin servidores propios.
 
 ## Arquitectura de producción
 
-- **Frontend React/Vite**: se compila con `npm run build` y Flask sirve los archivos estáticos desde `frontend/dist`.
+- **Frontend React/Vite**: el `Dockerfile` lo compila con `npm run build` y Flask sirve los archivos estáticos desde `frontend/dist`.
 - **Backend Flask**: corre con Gunicorn mediante `scripts/start_production.sh`.
 - **Base de datos SQLite**: se guarda en `DB_PATH` y se respalda desde el panel de administrador o con `scripts/backup_sqlite.sh`.
 - **URL público**: Render asigna un dominio HTTPS como `https://beer-house-palenque.onrender.com`.
@@ -23,10 +23,10 @@ Copie `.env.production.example` al panel de Render o úselo como referencia loca
 | `ADMIN_PASSWORD` | Contraseña inicial del usuario `admin` | valor privado fuerte |
 | `SELLER_PASSWORD` | Contraseña inicial del usuario `vendedor` | valor privado fuerte |
 | `CORS_ORIGINS` | Orígenes permitidos para API y uploads | `https://beer-house-palenque.onrender.com` |
-| `DB_PATH` | Ruta del archivo SQLite | `/opt/render/project/src/data/beer_house.db` |
-| `UPLOAD_FOLDER` | Carpeta de imágenes cargadas | `/opt/render/project/src/data/uploads` |
-| `BACKUP_FOLDER` | Carpeta de respaldos SQLite | `/opt/render/project/src/data/backups` |
-| `FRONTEND_DIST` | Carpeta de build React | `/opt/render/project/src/frontend/dist` |
+| `DB_PATH` | Ruta del archivo SQLite en el contenedor Docker | `/app/data/beer_house.db` |
+| `UPLOAD_FOLDER` | Carpeta de imágenes cargadas en el contenedor Docker | `/app/data/uploads` |
+| `BACKUP_FOLDER` | Carpeta de respaldos SQLite en el contenedor Docker | `/app/data/backups` |
+| `FRONTEND_DIST` | Carpeta de build React en el contenedor Docker | `/app/frontend/dist` |
 | `SEED_DEMO_DATA` | Carga ventas demo. En producción use `0` | `0` |
 | `WEB_CONCURRENCY` | Workers Gunicorn. SQLite debe usar 1 | `1` |
 
@@ -34,21 +34,25 @@ Copie `.env.production.example` al panel de Render o úselo como referencia loca
 
 1. Suba este repositorio a GitHub.
 2. Cree una cuenta en Render y seleccione **New + > Blueprint**.
-3. Conecte el repositorio y Render detectará `render.yaml`.
+3. Conecte el repositorio y Render detectará `render.yaml` con `runtime: docker`.
 4. Configure estos secretos en Render antes de crear el servicio:
    - `ADMIN_PASSWORD`: contraseña fuerte para el administrador.
    - `SELLER_PASSWORD`: contraseña fuerte para vendedor.
    - `CORS_ORIGINS`: use el dominio final de Render. Si aún no lo conoce, primero use `*`, despliegue, copie el URL público y cámbielo a ese URL exacto.
-5. Espere a que Render ejecute `./scripts/build_production.sh` y luego `./scripts/start_production.sh`.
+5. Espere a que Render construya la imagen desde `./Dockerfile`; al iniciar el contenedor usará el `CMD` del Dockerfile, que ejecuta `./scripts/start_production.sh`.
 6. Abra el URL público `https://<servicio>.onrender.com` desde una computadora y desde un celular.
 7. Entre con:
    - Usuario administrador: `admin` + el valor de `ADMIN_PASSWORD`.
    - Usuario vendedor: `vendedor` + el valor de `SELLER_PASSWORD`.
 8. Cambie o cree usuarios desde el panel de administrador y no comparta las credenciales iniciales.
 
+## Checklist detallado para Render con Docker
+
+Para una lista operativa completa de creación de cuenta, conexión con GitHub, despliegue por Dockerfile, variables, contraseñas, URL público, pruebas desde computadora/teléfono e instalación PWA en Android, use [`docs/RENDER_DEPLOYMENT_CHECKLIST.md`](RENDER_DEPLOYMENT_CHECKLIST.md).
+
 ## Despliegue manual con Docker
 
-También puede ejecutar el contenedor en cualquier nube gratuita que acepte Docker:
+También puede ejecutar el contenedor localmente o en cualquier nube que acepte Docker:
 
 ```bash
 docker build -t beer-house-palenque .

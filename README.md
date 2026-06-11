@@ -95,12 +95,13 @@ El proyecto incluye configuración lista para desplegar una versión pública en
 
 Archivos principales:
 
-- [`render.yaml`](render.yaml): blueprint de Render Free Web Service.
+- [`render.yaml`](render.yaml): blueprint de Render Free Web Service con runtime Docker.
 - [`.env.production.example`](.env.production.example): variables de entorno seguras para producción.
 - [`scripts/build_production.sh`](scripts/build_production.sh): instala dependencias, compila React y valida Python.
 - [`scripts/start_production.sh`](scripts/start_production.sh): inicia Gunicorn con rutas SQLite, uploads y backups configurables.
 - [`scripts/backup_sqlite.sh`](scripts/backup_sqlite.sh): crea y descarga respaldos SQLite desde el URL público.
 - [`docs/PRODUCTION_DEPLOYMENT.md`](docs/PRODUCTION_DEPLOYMENT.md): guía paso a paso para URL público, backups y seguridad.
+- [`docs/RENDER_DEPLOYMENT_CHECKLIST.md`](docs/RENDER_DEPLOYMENT_CHECKLIST.md): checklist operativo para crear cuenta de Render, conectar GitHub, desplegar con Docker, configurar variables, probar desde computadora/teléfono e instalar la PWA en Android.
 
 Comandos rápidos:
 
@@ -118,6 +119,7 @@ La documentación ampliada se encuentra en la carpeta `docs/`:
 - [`docs/ANALISIS_MEJORAS.md`](docs/ANALISIS_MEJORAS.md): análisis de seguridad, usabilidad, rendimiento y diseño.
 - [`docs/DOCUMENTACION_TECNICA.md`](docs/DOCUMENTACION_TECNICA.md): arquitectura, tecnologías, estructura, funciones, base de datos, instalación y configuración.
 - [`docs/DEPLOYMENT_EXECUTION_GUIDE.md`](docs/DEPLOYMENT_EXECUTION_GUIDE.md): guía completa de despliegue, ejecución local, variables de entorno, inicialización, pruebas y solución de problemas.
+- [`docs/RENDER_DEPLOYMENT_CHECKLIST.md`](docs/RENDER_DEPLOYMENT_CHECKLIST.md): checklist paso a paso para publicar la app en Render con Docker y probar la PWA.
 - [`docs/MANUAL_USUARIO.md`](docs/MANUAL_USUARIO.md): guía de uso para administradores y vendedores.
 - [`docs/BITACORA_DESARROLLO.md`](docs/BITACORA_DESARROLLO.md): objetivos de prompts, resultados y mejoras realizadas.
 

@@ -1,29 +1,25 @@
 services:
   - type: web
     name: beer-house-palenque
-    runtime: python
+    runtime: docker
     plan: free
-    buildCommand: ./scripts/build_production.sh
-    startCommand: ./scripts/start_production.sh
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     healthCheckPath: /api/health
-    autoDeploy: true
+    autoDeployTrigger: commit
     envVars:
       - key: APP_ENV
         value: production
       - key: FLASK_ENV
         value: production
-      - key: PYTHON_VERSION
-        value: 3.11.9
-      - key: NODE_VERSION
-        value: 20.19.0
       - key: DB_PATH
-        value: /opt/render/project/src/data/beer_house.db
+        value: /app/data/beer_house.db
       - key: UPLOAD_FOLDER
-        value: /opt/render/project/src/data/uploads
+        value: /app/data/uploads
       - key: BACKUP_FOLDER
-        value: /opt/render/project/src/data/backups
+        value: /app/data/backups
       - key: FRONTEND_DIST
-        value: /opt/render/project/src/frontend/dist
+        value: /app/frontend/dist
       - key: SEED_DEMO_DATA
         value: "0"
       - key: WEB_CONCURRENCY
